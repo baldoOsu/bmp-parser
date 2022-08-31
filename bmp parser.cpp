@@ -11,36 +11,32 @@ using std::cerr;
 using std::endl;
 using std::string;
 
-namespace offsets {
-    constexpr std::ptrdiff_t Header = 0x00;
-    constexpr std::ptrdiff_t FileSize = 0x02;
-}
-
-
-
 int main()
 {
 
     try {
+        string fileName;
 
-        BMP bmp("bmpFile.bmp");
+        cout << "Enter file name: ";
 
-        cout << "Size of file: " << bmp.file_header.file_size << endl;
-        cout << "Image width: " << bmp.info_header.width << endl;
-        cout << "Image height: " << bmp.info_header.height << endl;
-        cout << "Image resolution: " << bmp.info_header.bits_per_pixel << endl;
+        std::cin >> fileName;
+        
+
+        cout << endl;
+
+        BMP bmp(const_cast<char*>(fileName.c_str()));
+
+        cout << "File size: " << bmp.file_header.file_size << " bytes" << endl;
+        cout << "Image width: " << bmp.info_header.width << "px" << endl;
+        cout << "Image height: " << bmp.info_header.height << "px" << endl;
+        cout << "Image length (raw bitmap data): " << bmp.info_header.image_size << " bytes" << endl;
+        cout << "Color Depth: " << bmp.info_header.bits_per_pixel << "bit" << endl;
+        cout << "Compression: " << bmp.getCompression() << endl << endl;
     }
     catch (const std::runtime_error& error)
     {
-        //cerr << error.what() << endl;
-        throw error;
+        cerr << error.what() << endl;
     }
 
-
-
-
-
-
-    
-
+    system("pause");
 }

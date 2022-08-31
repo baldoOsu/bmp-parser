@@ -2,6 +2,7 @@
 #include <fstream>
 #include <iostream>
 
+#pragma pack(push, 1)
 struct BMPFileHeader {
     uint16_t file_type{0x4D42};       // signature of the file = "bm"
     uint32_t file_size{ 0 };          // size of file
@@ -10,7 +11,7 @@ struct BMPFileHeader {
 };
 
 struct BMPInfoHeader {
-    uint32_t size{ 0 };   // size of info header
+    uint32_t size{ 0 };  // size of info header
     int32_t width{ 0 };  // horizontal width of image
     int32_t height{ 0 }; // vertical height of image
 
@@ -19,8 +20,8 @@ struct BMPInfoHeader {
     uint16_t bits_per_pixel{ 0 };   // bits per pixel, ÁKA quality
     uint32_t compression{ 0 };      // type of compression; 0 = no compression
     uint32_t image_size{ 0 };       // size of image
-    int32_t x_pixels_per_m{ 0 };   // horisontal resolution: pixels/meter
-    int32_t y_pixels_per_m{ 0 };   // vertical resolution: pixels/meter
+    int32_t x_pixels_per_m{ 0 };    // horisontal resolution: pixels/meter
+    int32_t y_pixels_per_m{ 0 };    // vertical resolution: pixels/meter
     uint32_t colors_used{ 0 };      // number of used colors
     uint32_t important_colors{ 0 }; // number of important colors
 };
@@ -34,10 +35,16 @@ struct BMPColorHeader {
     uint32_t unused[16]{ 0 };                        // unused for sRGB
 };
 
+#pragma pack(pop)
+
 struct BMP {
+public:
     BMPFileHeader  file_header;
     BMPInfoHeader  info_header;
     BMPColorHeader color_header;
+
+    const char* getCompression() { return compressions[info_header.compression]; }
+
 
     BMP(const char *fname)
     {
@@ -69,5 +76,15 @@ struct BMP {
         {
             throw std::runtime_error("Could not open the input bitmap file");
         }
+
+        inp.close();
     }
+private:
+
+    // For simplicity, this does not support Windows Metafile compression
+    const char* compressions[7] = {
+        "BI_RGB", "BI_RLE8", "BI_RLE4", "BI_BITFIELDS", 
+        "BI_JPEG", "BI_PNG", "BI_ALPHABITFIELDS"
+    };
+
 };
