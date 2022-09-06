@@ -2,15 +2,18 @@
 #include <fstream>
 #include <iostream>
 
+// need to use #pragma pack(push, 1) and #pragma pack(pop) for compiler to not add padding
 #pragma pack(push, 1)
-struct BMPFileHeader {
+struct BMPFileHeader
+{
     uint16_t file_type{0x4D42};       // signature of the file = "bm"
     uint32_t file_size{ 0 };          // size of file
     uint32_t reserved{ 0 };           // reserved, always =0
     uint32_t data_offset{ 0 };        // offset from beginning to file to beginning of bitmap data
 };
 
-struct BMPInfoHeader {
+struct BMPInfoHeader
+{
     uint32_t size{ 0 };  // size of info header
     int32_t width{ 0 };  // horizontal width of image
     int32_t height{ 0 }; // vertical height of image
@@ -26,7 +29,8 @@ struct BMPInfoHeader {
     uint32_t important_colors{ 0 }; // number of important colors
 };
 
-struct BMPColorHeader {
+struct BMPColorHeader
+{
     uint32_t red_mask{ 0x00ff0000 };                 // Bit mask for red channel
     uint32_t green_mask{ 0x0000ff00 };               // Bit mask for green channel
     uint32_t blue_mask{ 0x000000ff };                // Bit mask for blue channel
@@ -37,7 +41,8 @@ struct BMPColorHeader {
 
 #pragma pack(pop)
 
-struct BMP {
+struct BMP
+{
 public:
     BMPFileHeader  file_header;
     BMPInfoHeader  info_header;
