@@ -1,4 +1,5 @@
 #pragma once
 #include "bmp.cpp"
 
-BMP;
+class BMP;
+struct RawPixel;

@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Source Files\png">
+      <UniqueIdentifier>{7aba10ac-7d46-482c-9cd0-9b283212e71a}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="bmp-to-png.cpp">
@@ -27,7 +30,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bmp.h">
-      <Filter>Source Files</Filter>
+      <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="png.h">
       <Filter>Header Files</Filter>

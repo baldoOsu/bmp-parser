@@ -2,6 +2,7 @@
 //
 
 #include "bmp.h"
+#include "png.h"
 
 #include <iostream>
 #include <fstream>
@@ -32,6 +33,9 @@ int main()
         cout << "Image length (raw bitmap data): " << bmp.info_header.image_size << " bytes" << endl;
         cout << "Color Depth: " << bmp.info_header.bits_per_pixel << "bit" << endl;
         cout << "Compression: " << bmp.getCompression() << endl << endl;
+
+        PNG png("outfile.png", bmp);
+        
     }
     catch (const std::runtime_error& error)
     {
