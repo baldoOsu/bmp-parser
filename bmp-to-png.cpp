@@ -16,8 +16,9 @@ int main()
 {
 
     try {
-        string fileName;
+        string fileName;// = std::string("bmpFile.bmp");
 
+        std::cout << "Convert .bmp file to .png" << std::endl;
         cout << "Enter file name: ";
 
         std::cin >> fileName;

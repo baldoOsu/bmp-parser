@@ -95,7 +95,7 @@ public:
                 RawPixel pixel;
                 inp.read((char*)&pixel, sizeof(pixel));
                 pixels.push_back(pixel);
-                std::cout << i << std::endl;
+                //std::cout << i << " pixels lodaet\n";
             }
 
             int o = 0;

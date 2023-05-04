@@ -64,6 +64,11 @@ typedef uint32_t crc;
 
 #pragma pack(pop)
 
+// funktion til at lave store indianer om til lille indianer
+// det er kun variabler der optager mere end 1 byte denne funktion skal bruges på
+template <typename T>
+void reverse_bytes(T* value);
+
 class PNG
 {
 public:
@@ -73,12 +78,13 @@ public:
 
 	PNG(const char* fname, BMP bmp)
 	{
+		reverse_bytes(&this->fheader.signature);
+
 		this->IHDRChunk.width					= bmp.info_header.width;
-		this->IHDRChunk.height					= bmp.info_header.height;
+		this->IHDRChunk.height					= std::abs(bmp.info_header.height);
 		this->IHDRChunk.bit_depth				= 8; // 8 bits per farve kanal
 		this->IHDRChunk.color_type				= 6; // RGBA
 		this->IHDRChunk.interlace_method		= 0; // ingen interlacing
-
 
 		write(fname, bmp);
 	}
@@ -92,13 +98,24 @@ public:
 		generateIDATChunk(precompressed, &IDATChunk);
 
 		sChunkHeader IDATHeader{ IDATChunk.data.size(), { 'I', 'D', 'A', 'T' } };
-		sChunkHeader IENDHeader{ 0, { 'I', 'E', 'N', 'D '} };
+		sChunkHeader IENDHeader{ 0, { 'I', 'E', 'N', 'D' } };
+
+		reverse_bytes(&this->IHDRHeader.length);
+		reverse_bytes(&this->IHDRChunk.width);
+		reverse_bytes(&this->IHDRChunk.height);
+
+		reverse_bytes(&IDATHeader.length);
+		reverse_bytes(&IENDHeader.length);
 
 		crc crc_IHDR	= crc32(0L, Z_NULL, 0);
 		crc_IHDR		= crc32(crc_IHDR, (unsigned char*)&this->IHDRChunk, sizeof(this->IHDRChunk));
 
 		crc crc_IDAT	= crc32(0L, Z_NULL, 0);
-		crc_IDAT		= crc32(crc_IDAT, (unsigned char*)&IDATChunk, IDATChunk.data.size() * sizeof(char[CHUNK]));
+		crc_IDAT		= crc32(crc_IDAT, (unsigned char*)IDATChunk.data.data(), IDATChunk.data.size());
+
+		reverse_bytes(&crc_IHDR);
+		reverse_bytes(&crc_IDAT);
+
 
 		std::ofstream outfile{ fname, std::ios::out | std::ios::binary };
 
@@ -109,7 +126,7 @@ public:
 		outfile.write((char*)&crc_IHDR, sizeof(crc_IHDR));
 
 		outfile.write((char*)&IDATHeader, sizeof(IDATHeader));
-		outfile.write((char*)(IDATChunk.data.data()), IDATChunk.data.size() * sizeof(unsigned char[CHUNK]));
+		outfile.write((char*)IDATChunk.data.data(), IDATChunk.data.size());
 		outfile.write((char*)&crc_IDAT, sizeof(crc_IDAT));
 
 		outfile.write((char*)&IENDHeader, sizeof(IENDHeader));
@@ -124,9 +141,10 @@ private:
 		int ret, flush;
 		unsigned have;
 		z_stream strm;
-		unsigned char in[CHUNK];
-		unsigned char out[CHUNK];
-		unsigned int  idx = 0;
+		unsigned char*	in	= new unsigned char[CHUNK];
+		unsigned char*	out = new unsigned char[CHUNK];
+		int				idx = 0;
+		const			int bytes = CHUNK / sizeof(sScanline);
 
 		/* allocate deflate state */
 		strm.zalloc = Z_NULL;
@@ -136,43 +154,52 @@ private:
 		if (ret != Z_OK)
 			return ret;
 
-		/* compress until end of file */
+		// deflate() køres i en do while loop, således at deflate får en input af størrelsen <= CHUNK
+		// hvert gang den køres
 		do {
-			strm.avail_in = precompressed.scanlines.size() - CHUNK * (idx + 1) > CHUNK
-				? CHUNK
-				: precompressed.scanlines.size() - CHUNK * (idx + 1);
+			strm.avail_in = precompressed.scanlines.size() - (idx) > bytes
+				? bytes * sizeof(sScanline)
+				: (precompressed.scanlines.size() % bytes) * sizeof(sScanline);
+			flush = (int)(precompressed.scanlines.size() - idx) < 1 ? Z_FINISH : Z_NO_FLUSH;
 
-			flush = precompressed.scanlines.size() - CHUNK * (idx + 1) < 1 ? Z_FINISH : Z_NO_FLUSH;
+			if (flush != Z_FINISH) {
+				// memcpy bruges til at kopiere
+				memcpy(in, &precompressed.scanlines.data()[idx], strm.avail_in);
 
-			memcpy(in, precompressed.scanlines.data()[CHUNK * idx].filter_type + precompressed.scanlines.data()[CHUNK * idx].rawPixels, CHUNK);
+				strm.next_in = in;
 
-			strm.next_in = in;
+				/* run deflate() on input until output buffer not full, finish
+			   compression if all of source has been read in */
+				do {
+					strm.avail_out = CHUNK;
+					strm.next_out = out;
 
-			/* run deflate() on input until output buffer not full, finish
-		   compression if all of source has been read in */
-			do {
-				strm.avail_out = CHUNK;
-				strm.next_out = out;
-				
-				ret = deflate(&strm, flush);    /* no bad return value */
-				assert(ret != Z_STREAM_ERROR);  /* state not clobbered */
+					flush = Z_SYNC_FLUSH;
 
-				have = CHUNK - strm.avail_out;
-				/*if (fwrite(out, 1, have, dest) != have || ferror(dest)) {
-					(void)deflateEnd(&strm);
-					return Z_ERRNO;
-				}*/
-				(*IDATChunk).data.push_back((unsigned char)out);
+					ret = deflate(&strm, flush);    /* no bad return value */
+					assert(ret != Z_STREAM_ERROR);  /* state not clobbered */
+					
+					// hvor mange 
+					have = CHUNK - strm.avail_out;
 
+					// her beregnes 
+					const void* start	= out;
+					const void* end		= out + have;
 
-			} while (strm.avail_out == 0);
-			assert(strm.avail_in == 0);     /* all input will be used */
+					for (unsigned char c = *out; out < end ; c = *++out) {
+						(*IDATChunk).data.push_back(c);
+					}
 
-			idx++;
+				// dette kører på tro, håb, og kærlighed
+				// så længe man tror det ikke bliver et infinite loop, bliver det ikke en infinite loop
+				} while (strm.avail_out == 0);
+				assert(strm.avail_in == 0); // al input skal være brugt
 
-			/* done when last data in file processed */
+				idx += bytes;
+			}
+
+		// færdig når den har været igennem alle scanlines
 		} while (flush != Z_FINISH);
-		assert(ret == Z_STREAM_END);        /* stream will be complete */
 
 		/* clean up and return */
 		(void)deflateEnd(&strm);
@@ -193,7 +220,9 @@ private:
 			sScanline scanline;
 			for (int x = 0; x < width; x++)
 			{
-				scanline.rawPixels[i * width + x] = rawPixels.data()[i * width + x];
+				auto b = i * width + x;
+				scanline.rawPixels[x] = rawPixels.data()[i * width + x];
+				//std::cout << "x is " << x << "\n";
 			}
 			precompressed.scanlines.push_back(scanline);
 		}
@@ -208,3 +237,16 @@ private:
 //}
 };
 
+// Helper function to reverse bytes of integer types
+template <typename T>
+void reverse_bytes(T* value) {
+	T result = 0;
+	size_t size = sizeof(T);
+
+	for (size_t i = 0; i < size; ++i) {
+		result <<= 8;
+		result |= (*value & 0xFF);
+		*value >>= 8;
+	}
+	*value = result;
+}
