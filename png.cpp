@@ -8,6 +8,7 @@
 #include "bmp.h"
 #include "zlib.h"
 
+// til deflate kompression
 #if defined(MSDOS) || defined(OS2) || defined(WIN32) || defined(__CYGWIN__)
 #  include <fcntl.h>
 #  include <io.h>
@@ -16,36 +17,41 @@
 #  define SET_BINARY_MODE(file)
 #endif
 
+// data chunks til deflate kompression
 #define CHUNK 262144 // 256K bytes
+
+// dette her skal ændres for hvert bredde bmp filen man vil konvertere har
+#define SCANLINE_LEN 1280
 
 
 #pragma pack(push, 1)
 struct sPNGFileHeader
 {
-	uint64_t	signature{ 0x89504E470D0A1A0A };
+	uint64_t	signature{ 0x89504E470D0A1A0A }; // png signatur
 };
 
+// Alle chunks har en header af denne type
 struct sChunkHeader
 {
-	uint32_t	length { 0 };
-	char		type[4]{0,0,0,0};
+	uint32_t	length { 0 };		// Længde af chunk data
+	char		type[4]{0,0,0,0};	// typen af chunk
 };
 
 struct sIHDRChunk
 {
-	int32_t		width{ 0 };
-	int32_t		height{ 0 };
-	uint8_t		bit_depth{ 0 };
-	uint8_t		color_type{ 0 };
-	uint8_t		compression_method{ 0 };
-	uint8_t		filter_method{ 0 };
-	uint8_t		interlace_method{ 0 };
+	int32_t		width{ 0 };					// bredden af billede
+	int32_t		height{ 0 };				// højden af billede
+	uint8_t		bit_depth{ 0 };				// antallet af bits brugt til at repræsentere en enkel kanal
+	uint8_t		color_type{ 0 };			// farve typen (f.eks. RGB eller RGBA)
+	uint8_t		compression_method{ 0 };	// kompression metode
+	uint8_t		filter_method{ 0 };			// filter metode
+	uint8_t		interlace_method{ 0 };		// interlace metode
 };
 
 struct sScanline
 {
 	uint8_t					filter_type{ 0 };
-	RawPixel				rawPixels[200];
+	RGBARawPixel				rawPixels[SCANLINE_LEN];
 };
 
 // billede data før compression
@@ -78,10 +84,10 @@ public:
 
 	PNG(const char* fname, BMP bmp)
 	{
-		reverse_bytes(&this->fheader.signature);
-
 		this->IHDRChunk.width					= bmp.info_header.width;
 		this->IHDRChunk.height					= std::abs(bmp.info_header.height);
+
+		// programmet virker kun for bitmaps med følgende opsætning:
 		this->IHDRChunk.bit_depth				= 8; // 8 bits per farve kanal
 		this->IHDRChunk.color_type				= 6; // RGBA
 		this->IHDRChunk.interlace_method		= 0; // ingen interlacing
@@ -91,14 +97,18 @@ public:
 
 	void write(const char* fname, BMP bmp)
 	{
-
+		// scanlines bygges
 		sIDATChunk_precompression precompressed = preparePixels(bmp.pixels);
 
+		// IDATChunk bygges
 		sIDATChunk IDATChunk;
 		generateIDATChunk(precompressed, &IDATChunk);
 
 		sChunkHeader IDATHeader{ IDATChunk.data.size(), { 'I', 'D', 'A', 'T' } };
 		sChunkHeader IENDHeader{ 0, { 'I', 'E', 'N', 'D' } };
+
+		// alle nødvendige bytes behandles
+		reverse_bytes(&this->fheader.signature);
 
 		reverse_bytes(&this->IHDRHeader.length);
 		reverse_bytes(&this->IHDRChunk.width);
@@ -107,6 +117,7 @@ public:
 		reverse_bytes(&IDATHeader.length);
 		reverse_bytes(&IENDHeader.length);
 
+		// CRC32 beregnes for IHDR og IDAT chunks
 		crc crc_IHDR	= crc32(0L, Z_NULL, 0);
 		crc_IHDR		= crc32(crc_IHDR, (unsigned char*)&this->IHDRChunk, sizeof(this->IHDRChunk));
 
@@ -117,6 +128,7 @@ public:
 		reverse_bytes(&crc_IDAT);
 
 
+		// til sidst bliver alt skrevet ud til filen
 		std::ofstream outfile{ fname, std::ios::out | std::ios::binary };
 
 		outfile.write((char*)&this->fheader, sizeof(this->fheader));
@@ -132,70 +144,95 @@ public:
 		outfile.write((char*)&IENDHeader, sizeof(IENDHeader));
 
 		outfile.close();
+
+		std::cout << "Converted " << fname << " to .png\n\n";
 	}
 
 private:
+	// her er hele sovsen
 	int generateIDATChunk(sIDATChunk_precompression precompressed, sIDATChunk* IDATChunk)
 	{
-		// https://www.zlib.net/zlib_how.html
+		// her er der kopieret fra https://www.zlib.net/zlib_how.html, og så tilpasset til eget forbrug
+		// virker ikke med store filer
 		int ret, flush;
 		unsigned have;
 		z_stream strm;
-		unsigned char*	in	= new unsigned char[CHUNK];
+		unsigned char*	in	= new unsigned char[CHUNK];	// disse to arrays bliver allokeret på heap for ikke at fylde 512KB på stack
 		unsigned char*	out = new unsigned char[CHUNK];
 		int				idx = 0;
-		const			int bytes = CHUNK / sizeof(sScanline);
+		const			int pixels_pr_chunk = CHUNK / sizeof(sScanline); // så mange rå pixels kan der være pr CHUNK
 
 		/* allocate deflate state */
 		strm.zalloc = Z_NULL;
 		strm.zfree = Z_NULL;
 		strm.opaque = Z_NULL;
-		ret = deflateInit(&strm, -1);
+		ret = deflateInit(&strm, -1); // initialisering af deflate stream
 		if (ret != Z_OK)
 			return ret;
 
-		// deflate() køres i en do while loop, således at deflate får en input af størrelsen <= CHUNK
-		// hvert gang den køres
+		// deflate() køres i en do while loop, således at deflate får en 
+		// input af størrelsen <= CHUNK hver gang den køres
 		do {
-			strm.avail_in = precompressed.scanlines.size() - (idx) > bytes
-				? bytes * sizeof(sScanline)
-				: (precompressed.scanlines.size() % bytes) * sizeof(sScanline);
+			// her beregnes hvor mange bytes kan bruges til næste kompression
+			strm.avail_in = precompressed.scanlines.size() - (idx) > pixels_pr_chunk
+				? pixels_pr_chunk * sizeof(sScanline)
+				: (precompressed.scanlines.size() % pixels_pr_chunk) * sizeof(sScanline);
+
+			// flush bestemmes, for at vide om programmet skal gå videre eller ikke
 			flush = (int)(precompressed.scanlines.size() - idx) < 1 ? Z_FINISH : Z_NO_FLUSH;
 
 			if (flush != Z_FINISH) {
-				// memcpy bruges til at kopiere
-				memcpy(in, &precompressed.scanlines.data()[idx], strm.avail_in);
+				// memcpy bruges til at kopiere data fra scanlines til deflate stream input
+				try {
+					memcpy(in, &precompressed.scanlines.data()[idx], strm.avail_in);
+				}
+				catch (std::runtime_error err) {
+					std::cout << "Memcpy fejlede";
+				}
 
 				strm.next_in = in;
 
 				/* run deflate() on input until output buffer not full, finish
 			   compression if all of source has been read in */
 				do {
+					// output buffer størrelse sættes til CHUNK
 					strm.avail_out = CHUNK;
 					strm.next_out = out;
 
+					// jeg havde nogle få problemer med hvis flush var sat til Z_FINISH
+					// derfor sat jeg det til Z_SYNC_FLUSH for at deflate() kører al data igennem på en gang
 					flush = Z_SYNC_FLUSH;
 
 					ret = deflate(&strm, flush);    /* no bad return value */
 					assert(ret != Z_STREAM_ERROR);  /* state not clobbered */
 					
-					// hvor mange 
+					// hvor mange bytes der er outputtet
 					have = CHUNK - strm.avail_out;
 
-					// her beregnes 
-					const void* start	= out;
-					const void* end		= out + have;
+					// her beregnes pointers for starten og slutningen af output arrayet
+					const unsigned char* start		= out;
+					const unsigned char* end		= out + have;
 
-					for (unsigned char c = *out; out < end ; c = *++out) {
-						(*IDATChunk).data.push_back(c);
+					// bruges til for loop for ikke at ændre på out
+					unsigned char* outIterator = out;
+
+					// data i selve IDATChunk bliver nu opdateret
+					try {
+						for (unsigned char c = *outIterator; outIterator < end; c = *++outIterator) {
+							(*IDATChunk).data.push_back(c);
+						}
 					}
+					catch (std::runtime_error err) {
+						std::cout << "err";
+					}
+					
 
 				// dette kører på tro, håb, og kærlighed
 				// så længe man tror det ikke bliver et infinite loop, bliver det ikke en infinite loop
 				} while (strm.avail_out == 0);
 				assert(strm.avail_in == 0); // al input skal være brugt
 
-				idx += bytes;
+				idx += pixels_pr_chunk;
 			}
 
 		// færdig når den har været igennem alle scanlines
@@ -208,36 +245,34 @@ private:
 		return 0;
 	}
 
-	sIDATChunk_precompression preparePixels(std::vector<RawPixel> rawPixels)
+	// scanlines bygges her
+	sIDATChunk_precompression preparePixels(std::vector<RGBARawPixel> rawPixels)
 	{
-		sIDATChunk_precompression precompressed;
-		// af en eller anden grund ændrer højden og bredden sig med tiden???????
-		// så de bliver lagret her
+		// højden og bredden lagres her, std::abs() bruges fordi tallene er negative nogle gange
 		uint32_t height = std::abs(this->IHDRChunk.height);
 		uint32_t width = std::abs(this->IHDRChunk.width);
+
+		sIDATChunk_precompression precompressed;
+		
 		for (int i = 0; i < height; i++)
 		{
 			sScanline scanline;
 			for (int x = 0; x < width; x++)
 			{
-				auto b = i * width + x;
-				scanline.rawPixels[x] = rawPixels.data()[i * width + x];
+				// virker kun når antal px per scanline == bredde
+				if((x+1) % SCANLINE_LEN == 0)
+					precompressed.scanlines.push_back(scanline);
+
+				scanline.rawPixels[x % SCANLINE_LEN] = rawPixels.data()[i * height + x];
 				//std::cout << "x is " << x << "\n";
 			}
-			precompressed.scanlines.push_back(scanline);
 		}
 
 		return precompressed;
 	}
-//crc generateCRC()
-//{
-//	crc checksum;
-//
-//	return checksum;
-//}
 };
 
-// Helper function to reverse bytes of integer types
+// Lille hjælper funktion til at konvertere stor indianer (memory) til lille indianer (disk)
 template <typename T>
 void reverse_bytes(T* value) {
 	T result = 0;

@@ -2,4 +2,4 @@
 #include "bmp.cpp"
 
 class BMP;
-struct RawPixel;
+struct RGBARawPixel;
