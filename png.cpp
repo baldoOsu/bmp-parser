@@ -2,9 +2,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <cstdlib>
+#include <cstdint>
 
 #include "bmp.h"
-#include "zlib/zlib.h"
+#include "zlib.h"
 
 #if defined(MSDOS) || defined(OS2) || defined(WIN32) || defined(__CYGWIN__)
 #  include <fcntl.h>
@@ -14,7 +16,7 @@
 #  define SET_BINARY_MODE(file)
 #endif
 
-#define CHUNK 16384
+#define CHUNK 262144 // 256K bytes
 
 
 #pragma pack(push, 1)
@@ -31,8 +33,8 @@ struct sChunkHeader
 
 struct sIHDRChunk
 {
-	uint32_t	width{ 0 };
-	uint32_t	height{ 0 };
+	int32_t		width{ 0 };
+	int32_t		height{ 0 };
 	uint8_t		bit_depth{ 0 };
 	uint8_t		color_type{ 0 };
 	uint8_t		compression_method{ 0 };
@@ -43,7 +45,7 @@ struct sIHDRChunk
 struct sScanline
 {
 	uint8_t					filter_type{ 0 };
-	std::vector<RawPixel>	rawPixels;
+	RawPixel				rawPixels[200];
 };
 
 // billede data før compression
@@ -55,7 +57,7 @@ struct sIDATChunk_precompression
 // billede data efter compresison
 struct sIDATChunk
 {
-	std::vector<unsigned char[CHUNK]>	data {};
+	std::vector<unsigned char>	data {};
 };
 
 typedef uint32_t crc;
@@ -111,6 +113,8 @@ public:
 		outfile.write((char*)&crc_IDAT, sizeof(crc_IDAT));
 
 		outfile.write((char*)&IENDHeader, sizeof(IENDHeader));
+
+		outfile.close();
 	}
 
 private:
@@ -134,7 +138,14 @@ private:
 
 		/* compress until end of file */
 		do {
-			flush = idx > precompressed.scanlines.size() - 1 ? Z_FINISH : Z_NO_FLUSH;
+			strm.avail_in = precompressed.scanlines.size() - CHUNK * (idx + 1) > CHUNK
+				? CHUNK
+				: precompressed.scanlines.size() - CHUNK * (idx + 1);
+
+			flush = precompressed.scanlines.size() - CHUNK * (idx + 1) < 1 ? Z_FINISH : Z_NO_FLUSH;
+
+			memcpy(in, precompressed.scanlines.data()[CHUNK * idx].filter_type + precompressed.scanlines.data()[CHUNK * idx].rawPixels, CHUNK);
+
 			strm.next_in = in;
 
 			/* run deflate() on input until output buffer not full, finish
@@ -151,11 +162,13 @@ private:
 					(void)deflateEnd(&strm);
 					return Z_ERRNO;
 				}*/
-				(*IDATChunk).data.push_back(out);
+				(*IDATChunk).data.push_back((unsigned char)out);
 
 
 			} while (strm.avail_out == 0);
 			assert(strm.avail_in == 0);     /* all input will be used */
+
+			idx++;
 
 			/* done when last data in file processed */
 		} while (flush != Z_FINISH);
@@ -171,13 +184,16 @@ private:
 	sIDATChunk_precompression preparePixels(std::vector<RawPixel> rawPixels)
 	{
 		sIDATChunk_precompression precompressed;
-		
-		for (int i = 0; i < this->IHDRChunk.height; i++)
+		// af en eller anden grund ændrer højden og bredden sig med tiden???????
+		// så de bliver lagret her
+		uint32_t height = std::abs(this->IHDRChunk.height);
+		uint32_t width = std::abs(this->IHDRChunk.width);
+		for (int i = 0; i < height; i++)
 		{
 			sScanline scanline;
-			for (int x = 0; x < this->IHDRChunk.width; x++)
+			for (int x = 0; x < width; x++)
 			{
-				scanline.rawPixels.push_back(rawPixels[i * 100 + x]);
+				scanline.rawPixels[i * width + x] = rawPixels.data()[i * width + x];
 			}
 			precompressed.scanlines.push_back(scanline);
 		}
