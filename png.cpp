@@ -153,7 +153,6 @@ private:
 	int generateIDATChunk(sIDATChunk_precompression precompressed, sIDATChunk* IDATChunk)
 	{
 		// her er der kopieret fra https://www.zlib.net/zlib_how.html, og så tilpasset til eget forbrug
-		// virker ikke med store filer
 		int ret, flush;
 		unsigned have;
 		z_stream strm;
